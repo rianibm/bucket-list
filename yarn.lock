@@ -988,6 +988,21 @@ __metadata:
   languageName: node
   linkType: hard
 
+"little-yes@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "little-yes@workspace:."
+  dependencies:
+    "@types/react": "npm:^18.3.18"
+    "@types/react-dom": "npm:^18.3.5"
+    "@vitejs/plugin-react": "npm:^4.3.4"
+    lucide-react: "npm:^0.468.0"
+    react: "npm:^18.3.1"
+    react-dom: "npm:^18.3.1"
+    typescript: "npm:~5.7.2"
+    vite: "npm:^6.0.7"
+  languageName: unknown
+  linkType: soft
+
 "loose-envify@npm:^1.1.0":
   version: 1.4.0
   resolution: "loose-envify@npm:1.4.0"
@@ -1146,21 +1161,6 @@ __metadata:
   checksum: 10c0/283e8c5efcf37802c9d1ce767f302dd569dd97a70d9bb8c7be79a789b9902451e0d16334b05d73299b20f048cbc3c7d288bbbde10b701fa194e2089c237dbea3
   languageName: node
   linkType: hard
-
-"riani-courage-project@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "riani-courage-project@workspace:."
-  dependencies:
-    "@types/react": "npm:^18.3.18"
-    "@types/react-dom": "npm:^18.3.5"
-    "@vitejs/plugin-react": "npm:^4.3.4"
-    lucide-react: "npm:^0.468.0"
-    react: "npm:^18.3.1"
-    react-dom: "npm:^18.3.1"
-    typescript: "npm:~5.7.2"
-    vite: "npm:^6.0.7"
-  languageName: unknown
-  linkType: soft
 
 "rollup@npm:^4.34.9":
   version: 4.64.12

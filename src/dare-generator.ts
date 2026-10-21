@@ -114,28 +114,20 @@ export function createDareList(answers: Answers): Dare[] {
   const selectedFocus: FocusArea[] = answers.focus.length > 0 ? answers.focus : ["confidence"];
   const maxCourage = courageScore[answers.courage];
   const maxEnergy = energyScore[answers.energy];
-  const eligible = dareIdeas.filter((idea) => {
-    const fitsSetting = answers.setting === "either" || idea.setting === "either" || idea.setting === answers.setting;
-    return idea.courage <= maxCourage && idea.energy <= maxEnergy && fitsSetting;
-  });
-
-  const chosen: Dare[] = [];
-  const used = new Set<string>();
-
-  for (const focus of shuffle(selectedFocus)) {
-    const matching = shuffle(eligible.filter((idea) => idea.focus === focus && !used.has(idea.id)));
-    for (const idea of matching.slice(0, 2)) {
-      chosen.push(idea);
-      used.add(idea.id);
-    }
-  }
-
-  const remaining = shuffle(eligible.filter((idea) => selectedFocus.includes(idea.focus) && !used.has(idea.id)));
-  for (const idea of remaining) {
-    if (chosen.length >= 8) break;
-    chosen.push(idea);
-    used.add(idea.id);
-  }
+  const candidates = shuffle(
+    dareIdeas
+      .filter((idea) => selectedFocus.includes(idea.focus) && idea.energy <= maxEnergy)
+      .map((idea) => {
+        const levelDistance = Math.abs(idea.courage - maxCourage);
+        const aboveRequestedLevel = idea.courage > maxCourage ? 4 : 0;
+        const settingMismatch =
+          answers.setting !== "either" && idea.setting !== "either" && idea.setting !== answers.setting ? 2 : 0;
+        return { idea, score: levelDistance + aboveRequestedLevel + settingMismatch };
+      })
+      .sort((first, second) => first.score - second.score)
+      .map(({ idea }) => idea),
+  );
+  const chosen: Dare[] = candidates.slice(0, 8).map(({ courage, energy, setting, ...dare }) => dare);
 
   const intention = answers.intention.trim();
   if (intention) {

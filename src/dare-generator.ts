@@ -1,10 +1,14 @@
+import { daresSchema, feedbackSchema, coachSchema, type Source, type Feedback, type CoachResponse } from "../shared/contracts";
+import { needsImmediateHelp, crisisMessage } from "../shared/safety";
 export const focusAreas = [
-  { id: "connection", label: "Hubungan & kedekatan", note: "Menyampaikan rasa dan membuka diri" },
-  { id: "confidence", label: "Percaya diri", note: "Lebih nyaman jadi diri sendiri" },
-  { id: "boundaries", label: "Memilih diri sendiri", note: "Berani berkata tidak dan minta yang dibutuhkan" },
-  { id: "creative", label: "Kreativitas", note: "Mencoba, membuat, dan menunjukkan karya" },
-  { id: "adventure", label: "Pengalaman baru", note: "Keluar dari rutinitas dengan cara yang terasa aman" },
-  { id: "career", label: "Karier & uang", note: "Menghargai kemampuan dan mencoba peluang" },
+  { id: "calm", label: "Ketenangan & Regulasi Cemas", note: "Mengurai overthinking, grounding, dan meredakan kepanikan" },
+  { id: "compassion", label: "Self-Compassion & Kebaikan Diri", note: "Memaafkan ketidaksempurnaan dan menghentikan kritik batin" },
+  { id: "boundaries", label: "Batasan Sehat & Memilih Diri", note: "Berani berkata tidak dan melindungi energi emosional tanpa rasa bersalah" },
+  { id: "connection", label: "Hubungan & Kedekatan Hangat", note: "Menyampaikan rasa, keluar dari isolasi, dan membuka diri dengan aman" },
+  { id: "confidence", label: "Percaya Diri & Menghargai Diri", note: "Lebih nyaman menjadi diri sendiri dan mengatasi rasa minder" },
+  { id: "burnout", label: "Pemulihan Energi & Anti-Burnout", note: "Memberi izin istirahat, melambatkan ritme, dan jeda sadar" },
+  { id: "creative", label: "Kreativitas & Ekspresi Bebas", note: "Mencoba dan berekspresi tanpa takut dihakimi atau harus sempurna" },
+  { id: "career", label: "Karier & Aktualisasi Diri", note: "Menghargai kemampuan diri dan mengatasi imposter syndrome" },
 ] as const;
 
 export type FocusArea = (typeof focusAreas)[number]["id"];
@@ -12,12 +16,28 @@ export type CourageLevel = "gentle" | "stretch" | "bold";
 export type SettingPreference = "solo" | "together" | "either";
 export type EnergyPreference = "quiet" | "some" | "open";
 
+export type EmotionalBaseline =
+  | "overwhelmed"
+  | "exhausted"
+  | "isolated"
+  | "self_critical"
+  | "ready_to_grow";
+
+export const emotionalBaselines = [
+  { id: "overwhelmed" as const, label: "Pikiran Penuh & Cemas", detail: "Kepala terasa bising, overthinking, butuh langkah yang sangat lembut." },
+  { id: "exhausted" as const, label: "Lelah Emosional / Burnout", detail: "Energi menipis, butuh izin untuk istirahat dan menolak tuntutan." },
+  { id: "isolated" as const, label: "Merasa Sendiri / Terputus", detail: "Rindu kedekatan hangat, butuh langkah mikro yang aman tanpa rasa takut." },
+  { id: "self_critical" as const, label: "Sering Mengkritik Diri", detail: "Merasa serba kurang atau tidak cukup, butuh self-compassion." },
+  { id: "ready_to_grow" as const, label: "Siap Bertumbuh Bertahap", detail: "Merasa relatif stabil dan ingin memperluas zona nyaman dengan sadar." },
+];
+
 export type Answers = {
   focus: FocusArea[];
   courage: CourageLevel;
   energy: EnergyPreference;
   setting: SettingPreference;
   intention: string;
+  emotionalState?: EmotionalBaseline;
 };
 
 export type Dare = {
@@ -25,6 +45,10 @@ export type Dare = {
   title: string;
   focus: FocusArea;
   note: string;
+  whyHelpMentalHealth?: string;
+  microStep?: string;
+  mindfulTip?: string;
+  isAiGenerated?: boolean;
 };
 
 type DareIdea = Dare & {
@@ -46,59 +70,225 @@ const energyScore: Record<EnergyPreference, number> = {
 };
 
 const dareIdeas: DareIdea[] = [
-  { id: "c-1", focus: "connection", title: "Kirim pesan tulus ke seseorang yang akhir-akhir ini kamu pikirkan.", note: "Dekat tanpa harus membuat momen besar.", courage: 1, energy: 1, setting: "solo" },
-  { id: "c-2", focus: "connection", title: "Ajak seseorang ngobrol 15 menit, tanpa agenda selain ingin tahu kabarnya.", note: "Koneksi dimulai dari rasa ingin tahu.", courage: 2, energy: 1, setting: "together" },
-  { id: "c-3", focus: "connection", title: "Katakan satu hal yang kamu hargai dari seseorang—secara spesifik.", note: "Biar mereka tahu kamu benar-benar memperhatikan.", courage: 2, energy: 1, setting: "together" },
-  { id: "c-4", focus: "connection", title: "Ungkapkan perasaanmu dengan jujur, tanpa menyamarkannya jadi candaan.", note: "Kamu boleh jujur tanpa mengatur jawaban orang lain.", courage: 3, energy: 1, setting: "together" },
-  { id: "c-5", focus: "connection", title: "Usulkan rencana sederhana dengan seseorang yang ingin lebih dekat denganmu.", note: "Satu ajakan kecil sudah termasuk berani.", courage: 2, energy: 2, setting: "together" },
-  { id: "c-6", focus: "connection", title: "Minta ditemani karena kamu ingin ada teman, bukan karena harus ada alasan.", note: "Menerima kehadiran orang lain juga sebuah keberanian.", courage: 3, energy: 1, setting: "together" },
-  { id: "c-7", focus: "connection", title: "Tanyakan pertanyaan yang selama ini kamu tahan karena takut jawabannya.", note: "Pilih waktu dan cara yang tetap terasa aman untukmu.", courage: 3, energy: 1, setting: "together" },
-  { id: "c-8", focus: "connection", title: "Tulis surat pendek untuk seseorang yang berarti, lalu putuskan sendiri apakah mau mengirimnya.", note: "Kamu tidak harus mengirimnya agar perasaanmu valid.", courage: 2, energy: 1, setting: "solo" },
+  // Calm & Anxiety Regulation
+  {
+    id: "calm-1",
+    focus: "calm",
+    title: "Tuliskan 3 pikiran yang membuatmu cemas di kertas, lalu lipat dan simpan di laci.",
+    note: "Pikiranmu tidak harus diselesaikan semuanya saat ini.",
+    whyHelpMentalHealth: "Teknik 'externalization' dalam CBT membantu memindahkan beban kognitif dari memori kerja ke luar kepala.",
+    microStep: "Ambil secarik kertas kecil atau buka aplikasi catatan dan tulis satu kalimat saja dulu.",
+    mindfulTip: "Tarik napas 4 detik, embuskan perlahan 6 detik saat melipat kertas.",
+    courage: 1,
+    energy: 1,
+    setting: "solo",
+  },
+  {
+    id: "calm-2",
+    focus: "calm",
+    title: "Ambil jeda 5 menit tanpa membuka layar, cukup rasakan telapak kakimu menapak lantai.",
+    note: "Tubuhmu berhak mendapatkan jeda tanpa stimulasi.",
+    whyHelpMentalHealth: "Latihan 'grounding somatic' menstimulasi saraf vagus dan menurunkan kadar hormon stres secara alami.",
+    microStep: "Letakkan ponsel dengan layar menghadap ke bawah di meja.",
+    mindfulTip: "Sebutkan dalam hati 3 warna benda di sekitarmu yang membuatmu nyaman.",
+    courage: 1,
+    energy: 1,
+    setting: "solo",
+  },
+  {
+    id: "calm-3",
+    focus: "calm",
+    title: "Tunda membalas pesan yang membuatmu tegang selama 20 menit untuk menenangkan napas.",
+    note: "Urgensi orang lain bukan berarti bahaya darurat bagimu.",
+    whyHelpMentalHealth: "Memutus siklus reaktivitas impulsif melatih amigdala untuk tidak menyamakan ketidakpastian dengan bahaya.",
+    microStep: "Tutup aplikasi chat dan minum segelas air hangat.",
+    mindfulTip: "Katakan pada dirimu: 'Aku aman merespons saat pikiranku sudah lebih tenang.'",
+    courage: 2,
+    energy: 1,
+    setting: "solo",
+  },
 
-  { id: "p-1", focus: "confidence", title: "Pakai sesuatu yang kamu suka, tanpa menunggu ada acara khusus.", note: "Selera kamu tidak perlu persetujuan siapa pun.", courage: 1, energy: 1, setting: "solo" },
-  { id: "p-2", focus: "confidence", title: "Pilih satu hal kecil hari ini tanpa meminta pendapat siapa pun dulu.", note: "Perhatikan rasanya mempercayai keputusanmu sendiri.", courage: 2, energy: 1, setting: "solo" },
-  { id: "p-3", focus: "confidence", title: "Pergi sendiri ke tempat nyaman dan pesan hal yang benar-benar kamu inginkan.", note: "Temani dirimu sendiri dengan baik.", courage: 2, energy: 2, setting: "solo" },
-  { id: "p-4", focus: "confidence", title: "Terima pujian dengan bilang “terima kasih”, tanpa mengecilkan diri.", note: "Kamu tidak perlu membantah hal baik tentang dirimu.", courage: 2, energy: 1, setting: "together" },
-  { id: "p-5", focus: "confidence", title: "Bagikan opini atau karya yang kamu banggakan meski belum terasa sempurna.", note: "Versi yang nyata lebih berani dari versi sempurna di kepala.", courage: 3, energy: 1, setting: "either" },
-  { id: "p-6", focus: "confidence", title: "Lakukan satu hal dengan caramu sendiri, tanpa menjelaskan pilihanmu.", note: "Pilihan sederhana tidak harus menjadi pembelaan.", courage: 3, energy: 1, setting: "solo" },
-  { id: "p-7", focus: "confidence", title: "Coba kelas pemula yang menarik perhatianmu—datang sebagai pemula saja.", note: "Kamu tidak perlu sudah jago untuk mulai.", courage: 2, energy: 2, setting: "together" },
-  { id: "p-8", focus: "confidence", title: "Catat satu hal yang kamu lakukan dengan baik minggu ini, sekecil apa pun.", note: "Beri dirimu kredit yang pantas.", courage: 1, energy: 1, setting: "solo" },
+  // Self-Compassion
+  {
+    id: "comp-1",
+    focus: "compassion",
+    title: "Katakan pada dirimu: 'Aku sedang berusaha sebaik mungkin, dan itu sudah cukup.'",
+    note: "Bicara pada diri sendiri seperti bicara pada sahabat tersayang.",
+    whyHelpMentalHealth: "Mengaktifkan sirkuit kasih sayang (oxytocin & endorphin) untuk meredam pelepasan kortisol akibat kritik batin.",
+    microStep: "Letakkan satu tangan di dada atau peluk kedua lenganmu dengan hangat.",
+    mindfulTip: "Ucapkan kalimat ini dengan nada suara batin yang lembut.",
+    courage: 1,
+    energy: 1,
+    setting: "solo",
+  },
+  {
+    id: "comp-2",
+    focus: "compassion",
+    title: "Maafkan satu hal kecil yang menurutmu 'kurang sempurna' yang kamu lakukan hari ini.",
+    note: "Menjadi manusia berarti memiliki keterbatasan yang wajar.",
+    whyHelpMentalHealth: "Melepaskan perfeksionisme neurotik menurunkan risiko kecemasan dan sindrom burnout jangka panjang.",
+    microStep: "Akui kesalahan itu tanpa melabeli dirimu buruk.",
+    mindfulTip: "Tarik napas sambil menerima rasa kecewa, embuskan sambil melepaskan tuntutan sempurna.",
+    courage: 2,
+    energy: 1,
+    setting: "solo",
+  },
+  {
+    id: "comp-3",
+    focus: "compassion",
+    title: "Izinkan dirimu tidak produktif selama 30 menit tanpa merasa bersalah.",
+    note: "Istirahat adalah kebutuhan biologis, bukan hadiah yang harus ditukar.",
+    whyHelpMentalHealth: "Merestorasi sistem saraf parasimpatis dan mencegah kelelahan mental berkepanjangan.",
+    microStep: "Rebahkan tubuhmu atau dengarkan alunan musik instrumental santai.",
+    mindfulTip: "Saat rasa bersalah muncul, cukup perhatikan ia sebagai awan yang lewat di langit pikiran.",
+    courage: 2,
+    energy: 1,
+    setting: "solo",
+  },
 
-  { id: "b-1", focus: "boundaries", title: "Tolak satu permintaan kecil yang memang tidak ingin kamu ambil.", note: "Jawaban singkat tetap merupakan jawaban lengkap.", courage: 2, energy: 1, setting: "either" },
-  { id: "b-2", focus: "boundaries", title: "Minta waktu sebelum menjawab permintaan yang belum kamu yakini.", note: "Kamu boleh berpikir dulu.", courage: 1, energy: 1, setting: "either" },
-  { id: "b-3", focus: "boundaries", title: "Sampaikan satu kebutuhanmu dengan kalimat langsung dan sederhana.", note: "Beri orang lain kesempatan untuk memahami kamu.", courage: 2, energy: 1, setting: "together" },
-  { id: "b-4", focus: "boundaries", title: "Biarkan orang lain kecewa sebentar tanpa buru-buru memperbaiki perasaannya.", note: "Kamu bisa peduli tanpa mengambil alih semuanya.", courage: 3, energy: 1, setting: "either" },
-  { id: "b-5", focus: "boundaries", title: "Delegasikan satu hal yang biasanya otomatis kamu tangani sendiri.", note: "Tidak semua hal harus kamu pikul.", courage: 2, energy: 1, setting: "together" },
-  { id: "b-6", focus: "boundaries", title: "Minta teman mendengarkan ceritamu dulu, tanpa langsung memberi solusi.", note: "Kebutuhanmu layak disebutkan.", courage: 2, energy: 1, setting: "together" },
-  { id: "b-7", focus: "boundaries", title: "Berhenti sejenak sebelum bilang “iya”; cek dulu apa yang kamu rasakan.", note: "Jeda kecil bisa mengubah jawabanmu.", courage: 1, energy: 1, setting: "solo" },
-  { id: "b-8", focus: "boundaries", title: "Pilih sesuatu yang kamu inginkan meski pilihan orang lain berbeda.", note: "Perbedaan bukan berarti kamu mengecewakan mereka.", courage: 3, energy: 1, setting: "either" },
+  // Boundaries
+  {
+    id: "bnd-1",
+    focus: "boundaries",
+    title: "Tolak satu ajakan atau permintaan kecil yang sebenarnya menguras energimu dengan sopan.",
+    note: "Setiap kali kamu berkata 'tidak' pada hal yang melelahkan, kamu berkata 'ya' pada kesehatan mentalmu.",
+    whyHelpMentalHealth: "Memutus pola people-pleasing dan membangun integritas batas diri (healthy individuation).",
+    microStep: "Ketik: 'Terima kasih sudah mengajak, tapi untuk kali ini aku belum bisa ya.'",
+    mindfulTip: "Ingat bahwa rasa tidak enak di awal lebih sehat daripada kebencian batin di akhir.",
+    courage: 2,
+    energy: 1,
+    setting: "either",
+  },
+  {
+    id: "bnd-2",
+    focus: "boundaries",
+    title: "Matikan notifikasi pekerjaan atau media sosial setelah jam 8 malam ini.",
+    note: "Malammu adalah ruang suci untuk ketenangan batinmu.",
+    whyHelpMentalHealth: "Mencegah 'hypervigilance' (kewaspadaan berlebih) dan mempersiapkan otak untuk tidur restoratif yang nyenyak.",
+    microStep: "Aktifkan mode Jangan Ganggu (Do Not Disturb) di ponselmu.",
+    mindfulTip: "Nyalakan lampu remang-remang untuk memberi sinyal melatonin pada otak.",
+    courage: 1,
+    energy: 1,
+    setting: "solo",
+  },
+  {
+    id: "bnd-3",
+    focus: "boundaries",
+    title: "Katakan: 'Boleh aku pikirkan dulu dan kabari besok?' saat diajak sesuatu yang mendadak.",
+    note: "Kamu berhak memiliki waktu jeda sebelum membuat komitmen.",
+    whyHelpMentalHealth: "Mencegah keputusan reaktif yang memicu penyesalan dan kecemasan pasca-komitmen.",
+    microStep: "Gunakan kalimat ini sebagai tanggapan standar otomatis.",
+    mindfulTip: "Rasakan kelegaan bahwa kamu tidak harus menjawab detik itu juga.",
+    courage: 2,
+    energy: 1,
+    setting: "either",
+  },
 
-  { id: "k-1", focus: "creative", title: "Buat sesuatu selama 20 menit dan berhenti sebelum mulai mengkritiknya.", note: "Prosesnya boleh lebih penting dari hasil.", courage: 1, energy: 1, setting: "solo" },
-  { id: "k-2", focus: "creative", title: "Coba aktivitas kreatif yang belum pernah kamu lakukan, khusus untuk bersenang-senang.", note: "Tidak harus berubah jadi proyek serius.", courage: 1, energy: 1, setting: "solo" },
-  { id: "k-3", focus: "creative", title: "Bagikan draf atau karya yang masih terasa sedikit berantakan.", note: "Biarkan orang melihat proses, bukan hanya hasil akhir.", courage: 3, energy: 1, setting: "either" },
-  { id: "k-4", focus: "creative", title: "Ikuti lokakarya pemula di luar bidang yang biasanya kamu tekuni.", note: "Jadi orang baru di ruangan itu adalah bagian dari serunya.", courage: 2, energy: 2, setting: "together" },
-  { id: "k-5", focus: "creative", title: "Buat proyek mini yang tidak perlu berguna untuk siapa pun.", note: "Kesenangan tidak harus menghasilkan sesuatu.", courage: 1, energy: 1, setting: "solo" },
-  { id: "k-6", focus: "creative", title: "Ceritakan hal yang kamu sukai selama lima menit tanpa menyiapkan presentasi.", note: "Antusiasmemu adalah persiapan yang cukup.", courage: 2, energy: 1, setting: "together" },
-  { id: "k-7", focus: "creative", title: "Minta satu masukan untuk karyamu dan dengarkan sebelum menjelaskan.", note: "Kamu boleh memikirkan masukan itu nanti.", courage: 3, energy: 1, setting: "either" },
-  { id: "k-8", focus: "creative", title: "Tunjukkan karya yang kamu suka kepada satu orang yang kamu percaya.", note: "Mulai dari lingkaran yang terasa aman.", courage: 2, energy: 1, setting: "together" },
+  // Connection
+  {
+    id: "con-1",
+    focus: "connection",
+    title: "Kirim pesan singkat ke orang yang kamu rindukan tanpa harus merencanakan pertemuan panjang.",
+    note: "Koneksi hangat dimulai dari sapaan sederhana.",
+    whyHelpMentalHealth: "Meredam isolasi sosial dan menstimulasi hormon ikatan sosial (oxytocin) yang meredakan cemas.",
+    microStep: "Kirim pesan: 'Lagi kepikiran kamu, semoga harimu menyenangkan ya!'",
+    mindfulTip: "Kirimkan pesan dan lepaskan ekspektasi seberapa cepat mereka harus membalas.",
+    courage: 1,
+    energy: 1,
+    setting: "solo",
+  },
+  {
+    id: "con-2",
+    focus: "connection",
+    title: "Ceritakan pada satu orang terdekat bahwa kamu sedang merasa agak lelah atau kewalahan akhir-akhir ini.",
+    note: "Kerentanan adalah jembatan menuju kedekatan yang nyata.",
+    whyHelpMentalHealth: "Membagi beban emosional (co-regulation) terbukti secara klinis menurunkan beban stres subjektif.",
+    microStep: "Mulai dengan kalimat pembuka: 'Boleh cerita sebentar? Lagi agak capek belakangan ini.'",
+    mindfulTip: "Kamu tidak perlu terlihat selalu kuat di hadapan orang yang tulus menyayangimu.",
+    courage: 3,
+    energy: 2,
+    setting: "together",
+  },
 
-  { id: "a-1", focus: "adventure", title: "Pilih film secara spontan dan nikmati waktu sendiri di bioskop.", note: "Tidak perlu membuat itinerary untuk malam yang menyenangkan.", courage: 1, energy: 2, setting: "solo" },
-  { id: "a-2", focus: "adventure", title: "Coba makanan dari tempat baru tanpa membaca semua ulasan dulu.", note: "Biar rasa penasaran memilih kali ini.", courage: 1, energy: 1, setting: "either" },
-  { id: "a-3", focus: "adventure", title: "Kunjungi toko buku, galeri kecil, atau kafe baru yang dekat dari rumah.", note: "Petualangan tidak harus jauh atau melelahkan.", courage: 1, energy: 2, setting: "either" },
-  { id: "a-4", focus: "adventure", title: "Hadiri acara kecil yang menarik, meski kamu belum kenal siapa-siapa.", note: "Kamu boleh pulang kapan pun jika sudah cukup.", courage: 3, energy: 2, setting: "together" },
-  { id: "a-5", focus: "adventure", title: "Jelajahi satu tempat baru dengan rencana yang sengaja dibuat longgar.", note: "Sisakan ruang untuk kejutan yang menyenangkan.", courage: 2, energy: 3, setting: "either" },
-  { id: "a-6", focus: "adventure", title: "Minta rekomendasi buku atau film ke orang yang seleranya berbeda darimu.", note: "Coba sesuatu dari sudut pandang orang lain.", courage: 2, energy: 1, setting: "together" },
-  { id: "a-7", focus: "adventure", title: "Buat makan malam sederhana dari resep negara yang belum pernah kamu coba.", note: "Tidak harus sempurna untuk jadi pengalaman baru.", courage: 1, energy: 2, setting: "solo" },
-  { id: "a-8", focus: "adventure", title: "Datang ke acara budaya atau komunitas yang biasanya kamu kira bukan untukmu.", note: "Rasa ingin tahu sudah cukup jadi alasan.", courage: 3, energy: 2, setting: "together" },
+  // Burnout & Energy Recovery
+  {
+    id: "brn-1",
+    focus: "burnout",
+    title: "Jalan kaki perlahan selama 10 menit di luar ruangan tanpa mendengarkan podcast atau musik.",
+    note: "Biarkan matamu melihat daun hijau, langit, dan udara terbuka.",
+    whyHelpMentalHealth: "Paparan alam dan 'optic flow' saat jalan kaki menurunkan aktivitas berlebih di default mode network otak.",
+    microStep: "Pakai alas kaki dan keluar dari pintu depan rumah.",
+    mindfulTip: "Fokuskan pandangan ke cakrawala yang luas untuk merilekskan otot mata.",
+    courage: 1,
+    energy: 1,
+    setting: "solo",
+  },
+  {
+    id: "brn-2",
+    focus: "burnout",
+    title: "Coret atau tunda satu hal dari daftar to-do list hari ini yang sebenarnya bukan prioritas kritis.",
+    note: "Kesehatan mentalmu jauh lebih berharga daripada daftar tugas yang penuh.",
+    whyHelpMentalHealth: "Mengurangi beban kognitif dan melatih penerimaan terhadap kapasitas energi manusiawi.",
+    microStep: "Pilih satu tugas non-esensial dan pindahkan ke minggu depan.",
+    mindfulTip: "Tarik napas lega menyadari bahwa dunia tidak runtuh karena satu tugas ditunda.",
+    courage: 2,
+    energy: 1,
+    setting: "solo",
+  },
 
-  { id: "w-1", focus: "career", title: "Catat tiga hal yang kamu kerjakan dengan baik dan siapa yang terbantu karenanya.", note: "Nilai kerja kamu layak terlihat olehmu sendiri.", courage: 1, energy: 1, setting: "solo" },
-  { id: "w-2", focus: "career", title: "Kirim pesan ke seseorang yang pekerjaannya membuatmu penasaran.", note: "Satu percakapan bisa membuka kemungkinan baru.", courage: 2, energy: 1, setting: "together" },
-  { id: "w-3", focus: "career", title: "Ajukan harga atau kompensasi yang menurutmu adil, tanpa langsung menurunkannya.", note: "Latih mengatakan angka itu dengan tenang.", courage: 3, energy: 1, setting: "either" },
-  { id: "w-4", focus: "career", title: "Lamar satu peluang yang menarik meski kamu belum memenuhi semua poin.", note: "Kamu boleh membiarkan mereka menilai kecocokanmu.", courage: 3, energy: 1, setting: "solo" },
-  { id: "w-5", focus: "career", title: "Bagikan satu hal yang kamu pelajari dari pekerjaan atau proyek terakhirmu.", note: "Pengalamanmu bisa berguna untuk orang lain.", courage: 2, energy: 1, setting: "either" },
-  { id: "w-6", focus: "career", title: "Pilih satu ide proyek kecil dan tentukan langkah pertama yang bisa selesai 20 menit.", note: "Mulai lebih penting daripada rencana yang sempurna.", courage: 1, energy: 1, setting: "solo" },
-  { id: "w-7", focus: "career", title: "Tanyakan tarif atau anggaran sebelum menawarkan diskon pada dirimu sendiri.", note: "Cari kejelasan sebelum berasumsi.", courage: 2, energy: 1, setting: "together" },
-  { id: "w-8", focus: "career", title: "Rayakan satu pencapaian kerja dengan sesuatu kecil yang kamu nikmati.", note: "Kamu boleh menikmati hasil usahamu.", courage: 1, energy: 1, setting: "either" },
+  // Confidence & Imposter Relief
+  {
+    id: "conf-1",
+    focus: "confidence",
+    title: "Tuliskan 3 hal kecil yang berhasil kamu lalui minggu ini, sekecil apa pun itu.",
+    note: "Kamu sudah melewati begitu banyak hari yang sulit.",
+    whyHelpMentalHealth: "Memprogram ulang bias negatif otak (negativity bias) agar melihat ketangguhan diri sendiri.",
+    microStep: "Ingat hal paling sederhana: bangun tidur, mandi, atau menyapa seseorang.",
+    mindfulTip: "Hargai dirimu karena tetap bertahan dan terus mencoba.",
+    courage: 1,
+    energy: 1,
+    setting: "solo",
+  },
+  {
+    id: "conf-2",
+    focus: "confidence",
+    title: "Berdiri tegak, rentangkan tangan ke atas, dan tersenyumlah pada bayanganmu di cermin selama 10 detik.",
+    note: "Tubuhmu bisa mengirimkan sinyal rasa aman dan keberanian kembali ke otakmu.",
+    whyHelpMentalHealth: "Umpan balik postural (postural biofeedback) memicu pelepasan neurotransmitter kepuasan dan ketenangan.",
+    microStep: "Cukup lihat matamu di cermin dan katakan: 'Halo, aku bersamamu.'",
+    mindfulTip: "Bernapas dalam-dalam dari diafragma.",
+    courage: 2,
+    energy: 1,
+    setting: "solo",
+  },
+
+  // Creative & Play
+  {
+    id: "crt-1",
+    focus: "creative",
+    title: "Coret-coret warna atau gambar bebas di kertas selama 5 menit tanpa memikirkan hasilnya harus bagus.",
+    note: "Proses bermain adalah terapi alami bagi jiwa yang lelah.",
+    whyHelpMentalHealth: "Meredam korteks prefrontal yang terlalu analitis dan memicu kondisi 'flow' yang menyembuhkan.",
+    microStep: "Ambil satu pulpen atau spidol warna apa saja.",
+    mindfulTip: "Nikmati sensasi goresan tinta di atas kertas.",
+    courage: 1,
+    energy: 1,
+    setting: "solo",
+  },
+
+  // Career & Imposter Syndrome
+  {
+    id: "car-1",
+    focus: "career",
+    title: "Catat satu kelebihan unik yang kamu miliki dalam caramu bekerja atau berinteraksi dengan orang lain.",
+    note: "Nilaimu tidak ditentukan semata-mata oleh metrik atau pujian atasan.",
+    whyHelpMentalHealth: "Mengikis sindrom imposter melalui bukti otentik kekuatan diri (strengths-based approach).",
+    microStep: "Tuliskan satu kata sifat positif tentang cara kerjamu.",
+    mindfulTip: "Biarkan dirimu menerima bahwa kamu memang memiliki kebaikan tersebut.",
+    courage: 1,
+    energy: 1,
+    setting: "solo",
+  },
 ];
 
 function shuffle<T>(items: T[]): T[] {
@@ -111,34 +301,87 @@ function shuffle<T>(items: T[]): T[] {
 }
 
 export function createDareList(answers: Answers): Dare[] {
-  const selectedFocus: FocusArea[] = answers.focus.length > 0 ? answers.focus : ["confidence"];
+  const selectedFocus: FocusArea[] = answers.focus.length > 0 ? answers.focus : ["calm", "compassion"];
   const maxCourage = courageScore[answers.courage];
   const maxEnergy = energyScore[answers.energy];
-  const candidates = shuffle(
-    dareIdeas
-      .filter((idea) => selectedFocus.includes(idea.focus) && idea.energy <= maxEnergy)
-      .map((idea) => {
-        const levelDistance = Math.abs(idea.courage - maxCourage);
-        const aboveRequestedLevel = idea.courage > maxCourage ? 4 : 0;
-        const settingMismatch =
-          answers.setting !== "either" && idea.setting !== "either" && idea.setting !== answers.setting ? 2 : 0;
-        return { idea, score: levelDistance + aboveRequestedLevel + settingMismatch };
-      })
-      .sort((first, second) => first.score - second.score)
-      .map(({ idea }) => idea),
-  );
-  const chosen: Dare[] = candidates.slice(0, 8).map(({ courage, energy, setting, ...dare }) => dare);
+
+  const candidates = shuffle(dareIdeas.filter(idea =>
+    selectedFocus.includes(idea.focus) && idea.energy <= maxEnergy && idea.courage <= maxCourage &&
+    (answers.setting === "either" || idea.setting === "either" || idea.setting === answers.setting)
+  )).sort((a, b) => Math.abs(a.courage - maxCourage) - Math.abs(b.courage - maxCourage));
+
+  const chosen: Dare[] = candidates.slice(0, 7).map(({ courage, energy, setting, ...dare }) => dare);
 
   const intention = answers.intention.trim();
   if (intention) {
     const focus = selectedFocus[0];
     chosen.push({
-      id: "your-idea",
+      id: "your-intention-dare",
       focus,
-      title: `Luangkan 15 menit untuk mengambil satu langkah kecil menuju: ${intention}`,
-      note: `Kamu memilih ${focusAreas.find((area) => area.id === focus)?.label.toLowerCase() ?? "hal ini"} sebagai area fokusmu.`,
+      title: `Luangkan 10 menit untuk mengambil satu langkah mikro yang paling menenangkan menuju: ${intention}`,
+      note: `Dirangkai khusus untuk niat batinmu di area ${focusAreas.find((area) => area.id === focus)?.label ?? "ini"}.`,
+      whyHelpMentalHealth: "Mengambil langkah mikro pertama mematahkan spiral penundaan akibat cemas (anxiety-driven avoidance).",
+      microStep: "Duduk tenang, tuliskan satu tindakan paling kecil yang bisa selesai dalam 2 menit.",
+      mindfulTip: "Tarik napas lembut dan yakini kamu tidak harus menyelesaikan semuanya hari ini.",
+      isAiGenerated: false,
     });
   }
 
   return chosen;
+}
+
+export class CrisisError extends Error {
+  constructor() { super(crisisMessage); }
+}
+async function post(path: string, body: unknown) {
+  const response = await fetch(path, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body), signal: AbortSignal.timeout(30000),
+  });
+  if (!response.ok) throw new Error("AI unavailable");
+  const data = await response.json();
+  if (data?.source === "crisis") throw new CrisisError();
+  return data;
+}
+export async function fetchAiDares(
+  answers: Answers, emotionalState: EmotionalBaseline = "overwhelmed"
+): Promise<{ dares: Dare[]; source: Source }> {
+  if (needsImmediateHelp(answers.intention)) throw new CrisisError();
+  try {
+    const data = await post("/api/generate-dares", { ...answers, emotionalState });
+    return { dares: daresSchema.parse(data?.dares), source: "ai" };
+  } catch (error) {
+    if (error instanceof CrisisError) throw error;
+    return { dares: createDareList({ ...answers, emotionalState }), source: "fallback" };
+  }
+}
+export async function fetchAiReflection(payload: {
+  dareTitle: string; dareFocus?: string; reflectionText: string; emotionalFeeling?: string;
+}): Promise<{ feedback: Feedback; source: Source }> {
+  if (needsImmediateHelp(`${payload.reflectionText} ${payload.dareTitle} ${payload.emotionalFeeling || ""}`)) throw new CrisisError();
+  try {
+    const data = await post("/api/reflect-dare", payload);
+    return { feedback: feedbackSchema.parse(data?.feedback), source: "ai" };
+  } catch (error) {
+    if (error instanceof CrisisError) throw error;
+    return { source: "fallback", feedback: {
+      validation: "AI sedang tidak tersedia. Ini pengingat umum, bukan tanggapan pribadi atas ceritamu. Perasaanmu layak didengarkan.",
+      therapeuticInsight: "Kamu boleh mengambil jeda dan mencari dukungan dari orang yang kamu percaya.",
+      affirmation: "Aku boleh mencari bantuan dan bergerak sesuai kemampuanku.",
+      nextGentleStep: "Jika kamu tidak aman, jangan menunggu AI. Hubungi layanan darurat setempat atau orang tepercaya sekarang.",
+    } };
+  }
+}
+export async function fetchMentalCoach(userMessage: string, topic?: string): Promise<{ response: CoachResponse; source: Source }> {
+  if (needsImmediateHelp(userMessage)) throw new CrisisError();
+  try {
+    const data = await post("/api/mental-coach", { userMessage, topic });
+    return { response: coachSchema.parse(data?.response), source: "ai" };
+  } catch (error) {
+    if (error instanceof CrisisError) throw error;
+    return { source: "fallback", response: {
+      empathy: "AI sedang tidak tersedia. Ini dukungan umum, bukan tanggapan pribadi atas ceritamu. Jika memungkinkan, hubungi orang yang kamu percaya untuk mendengarkanmu.",
+      breathingPrompt: "Jika nyaman dan aman, rasakan kaki menyentuh lantai dan bernapaslah secara alami. Kamu boleh berhenti kapan saja.",
+    } };
+  }
 }

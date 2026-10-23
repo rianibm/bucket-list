@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import type { ReactNode } from "react";
 import {
   AlertCircle,
@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  CrisisError,
   emotionalBaselines,
   fetchAiDares,
   fetchAiReflection,
@@ -34,6 +35,9 @@ import {
   type SettingPreference,
 } from "./dare-generator";
 
+import type { Source, CoachResponse } from "../shared/contracts";
+import { crisisMessage } from "../shared/safety";
+
 const STORAGE_KEY = "little-yes-personalized-v2";
 const stepCount = 5;
 
@@ -46,10 +50,12 @@ type ReflectionData = {
     affirmation: string;
     nextGentleStep?: string;
   };
+  source: Source;
   createdAt: string;
 };
 
 type SavedState = {
+  source: Source;
   answers: Answers | null;
   dares: Dare[];
   completed: string[];
@@ -66,6 +72,7 @@ const emptyAnswers: Answers = {
 };
 
 const defaultState: SavedState = {
+  source: "fallback",
   answers: null,
   dares: [],
   completed: [],
@@ -76,29 +83,13 @@ function isFocusArea(value: unknown): value is FocusArea {
   return typeof value === "string" && focusAreas.some((area) => area.id === value);
 }
 
-function readSavedState(): SavedState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultState;
-    const parsed = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return defaultState;
-    return {
-      answers: parsed.answers ?? null,
-      dares: Array.isArray(parsed.dares) ? parsed.dares : [],
-      completed: Array.isArray(parsed.completed) ? parsed.completed : [],
-      reflections: parsed.reflections ?? {},
-    };
-  } catch {
-    return defaultState;
-  }
-}
-
 function App() {
-  const [saved, setSaved] = useState(readSavedState);
+  const [saved, setSaved] = useState<SavedState>(defaultState);
   const [answers, setAnswers] = useState<Answers>(() => saved.answers ?? emptyAnswers);
   const [step, setStep] = useState(0);
   const [showQuestions, setShowQuestions] = useState(() => saved.dares.length === 0);
-  const [storageError, setStorageError] = useState(false);
+  const requestVersion = useRef(0);
+  const [privacyError, setPrivacyError] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [expandedDareId, setExpandedDareId] = useState<string | null>(null);
 
@@ -109,8 +100,9 @@ function App() {
 
   // Ruang Teduh AI Companion State
   const [coachInput, setCoachInput] = useState("");
+  const [coachSource, setCoachSource] = useState<Source>("fallback");
   const [coachLoading, setCoachLoading] = useState(false);
-  const [coachResponse, setCoachResponse] = useState<any | null>(null);
+  const [coachResponse, setCoachResponse] = useState<CoachResponse | null>(null);
 
   // Reflection Modal State
   const [reflectFeeling, setReflectFeeling] = useState("Lega & Tenang");
@@ -122,32 +114,43 @@ function App() {
   const [breathTimer, setBreathTimer] = useState(4);
   const [breathActive, setBreathActive] = useState(false);
 
+  // Remove legacy disclosures without loading or rendering untrusted saved content.
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
-      setStorageError(false);
-    } catch {
-      setStorageError(true);
-    }
-  }, [saved]);
+    try { localStorage.removeItem(STORAGE_KEY); }
+    catch { setPrivacyError(true); }
+  }, []);
 
-  // Breathing circle timer effect
+  function clearPersonalData() {
+    requestVersion.current += 1; // In-flight responses cannot restore deleted disclosures.
+    setSaved(defaultState);
+    setAnswers(emptyAnswers);
+    setCoachInput(""); setCoachResponse(null);
+    setReflectInput(""); setReflectFeeling("Lega & Tenang");
+    setCoachLoading(false); setReflectLoading(false); setIsGenerating(false);
+    setShowQuestions(true); setStep(0); setExpandedDareId(null);
+    setBreathActive(false); setActiveModal("none");
+    try { localStorage.removeItem(STORAGE_KEY); setPrivacyError(false); }
+    catch { setPrivacyError(true); }
+  }
+
+  function openBreathing() {
+    setBreathPhase("Tarik Napas"); setBreathTimer(4);
+    setBreathActive(true); setActiveModal("breathing");
+  }
+
+  // Every entry point starts a fresh four-phase box-breathing exercise.
   useEffect(() => {
     if (!breathActive || activeModal !== "breathing") return;
-    const interval = setInterval(() => {
-      setBreathTimer((prev) => {
-        if (prev > 1) return prev - 1;
-        setBreathPhase((currPhase) => {
-          if (currPhase === "Tarik Napas") return "Tahan";
-          if (currPhase === "Tahan") return "Embuskan";
-          if (currPhase === "Embuskan") return "Jeda";
-          return "Tarik Napas";
-        });
-        return 4;
-      });
+    const timer = window.setTimeout(() => {
+      if (breathTimer > 1) setBreathTimer(breathTimer - 1);
+      else {
+        const phases = ["Tarik Napas", "Tahan", "Embuskan", "Jeda"] as const;
+        setBreathPhase(phases[(phases.indexOf(breathPhase) + 1) % phases.length]);
+        setBreathTimer(4);
+      }
     }, 1000);
-    return () => clearInterval(interval);
-  }, [breathActive, activeModal]);
+    return () => window.clearTimeout(timer);
+  }, [breathActive, activeModal, breathTimer, breathPhase]);
 
   function toggleFocus(focus: FocusArea) {
     setAnswers((current) => {
@@ -161,10 +164,13 @@ function App() {
   }
 
   async function generateDares() {
+    const version = requestVersion.current;
     setIsGenerating(true);
     try {
-      const { dares } = await fetchAiDares(answers, answers.emotionalState || "overwhelmed");
+      const { dares, source } = await fetchAiDares(answers, answers.emotionalState || "overwhelmed");
+      if (version !== requestVersion.current) return;
       setSaved({
+        source,
         answers,
         dares,
         completed: [],
@@ -176,9 +182,9 @@ function App() {
         document.getElementById("my-dares")?.scrollIntoView({ behavior: "smooth" });
       }, 100);
     } catch (err) {
-      console.error("Error generating dares:", err);
+      if (version === requestVersion.current && err instanceof CrisisError) setActiveModal("crisis");
     } finally {
-      setIsGenerating(false);
+      if (version === requestVersion.current) setIsGenerating(false);
     }
   }
 
@@ -205,19 +211,23 @@ function App() {
   async function handleAskCoach(textToSend?: string) {
     const message = textToSend || coachInput;
     if (!message.trim()) return;
+    if (coachLoading) return;
+    const version = requestVersion.current;
     setCoachLoading(true);
     try {
       const res = await fetchMentalCoach(message);
-      setCoachResponse(res);
+      if (version !== requestVersion.current) return;
+      setCoachResponse(res.response);
+      setCoachSource(res.source);
       setCoachInput("");
     } catch (e) {
-      console.error(e);
+      if (version === requestVersion.current && e instanceof CrisisError) setActiveModal("crisis");
     } finally {
-      setCoachLoading(false);
+      if (version === requestVersion.current) setCoachLoading(false);
     }
   }
 
-  function addCoachDareToList(dareIdea: any) {
+  function addCoachDareToList(dareIdea: NonNullable<CoachResponse["recommendedDare"]>) {
     if (!dareIdea) return;
     const newDare: Dare = {
       id: `coach-${Date.now()}`,
@@ -226,7 +236,7 @@ function App() {
       focus: isFocusArea(dareIdea.focus) ? dareIdea.focus : "calm",
       whyHelpMentalHealth: dareIdea.whyHelpMentalHealth,
       microStep: dareIdea.microStep,
-      isAiGenerated: true,
+      isAiGenerated: coachSource === "ai",
     };
     setSaved((prev) => ({
       ...prev,
@@ -239,15 +249,17 @@ function App() {
   // Handle Dare Reflection Submission
   async function submitReflection(dare: Dare) {
     if (!reflectInput.trim()) return;
+    const version = requestVersion.current;
     setReflectLoading(true);
     try {
-      const feedback = await fetchAiReflection({
+      const { feedback, source } = await fetchAiReflection({
         dareTitle: dare.title,
         dareFocus: dare.focus,
         reflectionText: reflectInput,
         emotionalFeeling: reflectFeeling,
       });
 
+      if (version !== requestVersion.current) return;
       setSaved((prev) => ({
         ...prev,
         // Automatically mark dare as completed when reflected
@@ -258,6 +270,7 @@ function App() {
             feeling: reflectFeeling,
             reflectionText: reflectInput,
             aiFeedback: feedback,
+            source,
             createdAt: new Date().toLocaleDateString("id-ID", {
               day: "numeric",
               month: "short",
@@ -270,9 +283,9 @@ function App() {
       setActiveModal("none");
       setReflectInput("");
     } catch (e) {
-      console.error(e);
+      if (version === requestVersion.current && e instanceof CrisisError) setActiveModal("crisis");
     } finally {
-      setReflectLoading(false);
+      if (version === requestVersion.current) setReflectLoading(false);
     }
   }
 
@@ -308,10 +321,7 @@ function App() {
           <button
             type="button"
             className="nav-btn-text"
-            onClick={() => {
-              setActiveModal("breathing");
-              setBreathActive(true);
-            }}
+            onClick={openBreathing}
           >
             <Wind size={14} /> Latihan Napas
           </button>
@@ -330,6 +340,12 @@ function App() {
       </header>
 
       <main id="home">
+        <aside className="care-note section-wrap" aria-label="Privasi dan keselamatan">
+          <p>Daftar dan refleksi hanya disimpan selama halaman ini terbuka dan hilang saat dimuat ulang. Teks yang dikirim ke AI diproses oleh layanan AI; hindari nama lengkap dan informasi identitas pribadi.</p>
+          <button type="button" className="button button-outline" onClick={clearPersonalData}>Hapus semua data pribadi</button>
+          <p>Merasa tidak aman atau perlu bantuan segera? Jangan menunggu AI.</p>
+          <button type="button" className="button button-outline" onClick={() => setActiveModal("crisis")}>Saya perlu bantuan segera</button>
+        </aside>
         {/* Hero Section */}
         <section className="hero section-wrap">
           <div className="hero-copy">
@@ -667,10 +683,7 @@ function App() {
                 <button
                   className="button button-outline"
                   type="button"
-                  onClick={() => {
-                    setActiveModal("breathing");
-                    setBreathActive(true);
-                  }}
+                  onClick={openBreathing}
                 >
                   <Wind size={14} /> Jeda Napas
                 </button>
@@ -684,9 +697,9 @@ function App() {
             <div className="ai-status-card">
               <div className="ai-status-header">
                 <span className="ai-badge-live">
-                  <Sparkles size={14} /> Model AI Aktif: Gemini 2.5 Flash
+                  <Sparkles size={14} /> {saved.source === "ai" ? "Dihasilkan AI: Gemini 2.5 Flash" : "Dukungan umum · AI tidak tersedia"}
                 </span>
-                <span className="ai-subtext">Netlify AI Gateway · Clinical Behavioral Activation</span>
+                <span className="ai-subtext">{saved.source === "ai" ? "Saran self-care dari AI" : "Daftar lokal, bukan hasil AI pribadi"}</span>
               </div>
               <p>
                 Setiap tantangan di bawah dilengkapi <strong>alasan terapeutik</strong>, <strong>langkah mikro &lt; 2 menit</strong>, dan <strong>panduan saat cemas</strong>. Klik kartu untuk melihat detail panduan kesehatan mentalnya.
@@ -788,6 +801,7 @@ function App() {
                         {reflection.aiFeedback && (
                           <div className="ai-feedback-compact">
                             <span className="ai-coach-tag"><Sparkles size={11} /> Umpan Balik AI:</span>
+                            <small>{reflection.source === "ai" ? "Umpan balik AI" : "Pengingat umum · AI tidak tersedia"}</small>
                             <p>{reflection.aiFeedback.validation}</p>
                             <span className="affirmation-pill">Afirmasi: {reflection.aiFeedback.affirmation}</span>
                           </div>
@@ -890,7 +904,7 @@ function App() {
         </a>
         <div className="footer-links">
           <button type="button" onClick={() => setActiveModal("ruang-teduh")}>Ruang Teduh AI</button>
-          <button type="button" onClick={() => setActiveModal("breathing")}>Latihan Napas</button>
+          <button type="button" onClick={openBreathing}>Latihan Napas</button>
           <button type="button" onClick={() => setActiveModal("crisis")}>Bantuan Krisis</button>
         </div>
         <a href="#home" className="back-top">KEMBALI KE ATAS ↑</a>
@@ -900,9 +914,9 @@ function App() {
         <strong>Pemberitahuan Klinis &amp; Etika:</strong> Little Yes menggunakan model kecerdasan buatan (Gemini melalui Netlify AI Gateway) sebagai sarana pembentukan kebiasaan mikro dan aktivasi perilaku mandiri. Aplikasi ini <em>bukan</em> pengganti diagnosis medis psikiatri, psikoterapi klinis, atau intervensi kegawatdaruratan krisis mental. Jika Anda berada dalam bahaya, segera hubungi saluran darurat terdekat.
       </div>
 
-      {storageError && (
+      {privacyError && (
         <div className="storage-warning" role="status">
-          Browser ini tidak dapat menyimpan dare list-mu secara lokal.
+          Data lama di browser belum dapat dihapus. Hapus data situs melalui pengaturan browser ini untuk menghapusnya.
         </div>
       )}
 
@@ -927,6 +941,8 @@ function App() {
             </div>
 
             <div className="modal-body">
+              <p>{crisisMessage}</p>
+              <button type="button" className="button button-outline" onClick={() => setActiveModal("crisis")}>Saya merasa tidak aman</button>
               <div className="quick-topics-tray">
                 <span className="quick-topics-label">Pilih topik cepat jika bingung merangkai kata:</span>
                 <div className="chips-container">
@@ -970,6 +986,7 @@ function App() {
 
               {coachResponse && !coachLoading && (
                 <div className="coach-response-box">
+                  <p role="status">{coachSource === "ai" ? "Tanggapan AI" : "Dukungan umum · AI tidak tersedia"}</p>
                   <div className="coach-section">
                     <span className="coach-badge"><Heart size={12} /> Validasi Emosi:</span>
                     <p className="coach-empathy">{coachResponse.empathy}</p>
@@ -996,7 +1013,7 @@ function App() {
                         <button
                           type="button"
                           className="btn-add-dare"
-                          onClick={() => addCoachDareToList(coachResponse.recommendedDare)}
+                          onClick={() => coachResponse.recommendedDare && addCoachDareToList(coachResponse.recommendedDare)}
                         >
                           + Tambahkan ke Dare List-ku
                         </button>
@@ -1016,6 +1033,7 @@ function App() {
               <div className="coach-input-container">
                 <textarea
                   className="coach-textarea"
+                  maxLength={2000}
                   value={coachInput}
                   onChange={(e) => setCoachInput(e.target.value)}
                   placeholder="Ceritakan apa yang sedang kamu rasakan atau cemaskan saat ini..."
@@ -1078,6 +1096,7 @@ function App() {
                 </label>
                 <textarea
                   id="reflect-text"
+                  maxLength={2000}
                   className="intention-input"
                   rows={4}
                   value={reflectInput}
@@ -1148,6 +1167,7 @@ function App() {
                 </div>
               </div>
 
+              <p>Bernapaslah sewajarnya jika menahan napas terasa tidak nyaman. Kamu boleh berhenti kapan saja.</p>
               <p className="breathing-caption">
                 {breathPhase === "Tarik Napas" && "Tarik udara sejuk perlahan melalui hidung, biarkan perutmu mengembang."}
                 {breathPhase === "Tahan" && "Tahan dengan santai, rasakan ketenangan memenuhi dadamu."}
@@ -1204,14 +1224,15 @@ function App() {
             </div>
 
             <div className="modal-body">
+              <p role="alert">{crisisMessage}</p>
               <div className="crisis-list">
                 <div className="crisis-item">
                   <div className="crisis-item-left">
-                    <strong>Hotline Kesehatan Jiwa Sejiwa (Kemenkes)</strong>
-                    <p>Layanan konseling krisis psikologis resmi Kementerian Kesehatan RI.</p>
+                    <strong>Darurat Medis Indonesia</strong>
+                    <p>Untuk keadaan gawat darurat medis. Untuk dukungan psikologis, kunjungi healing119.id.</p>
                   </div>
                   <a href="tel:119" className="crisis-call-btn">
-                    <Phone size={14} /> Hubungi 119 (ext. 8)
+                    <Phone size={14} /> Hubungi 119
                   </a>
                 </div>
 
@@ -1228,7 +1249,7 @@ function App() {
                 <div className="crisis-item">
                   <div className="crisis-item-left">
                     <strong>LISA Suicide Prevention &amp; Mental Health Helpline</strong>
-                    <p>Dukungan krisis pencegahan bunuh diri dan kesehatan mental 24 jam.</p>
+                    <p>Dukungan kesehatan mental. Ketersediaan dapat berubah; gunakan layanan darurat jika ada bahaya segera.</p>
                   </div>
                   <a href="tel:081111945422" className="crisis-call-btn">
                     <Phone size={14} /> 08111-1945-422

@@ -1,3 +1,5 @@
+import { daresSchema, feedbackSchema, coachSchema, type Source, type Feedback, type CoachResponse } from "../shared/contracts";
+import { needsImmediateHelp, crisisMessage } from "../shared/safety";
 export const focusAreas = [
   { id: "calm", label: "Ketenangan & Regulasi Cemas", note: "Mengurai overthinking, grounding, dan meredakan kepanikan" },
   { id: "compassion", label: "Self-Compassion & Kebaikan Diri", note: "Memaafkan ketidaksempurnaan dan menghentikan kritik batin" },
@@ -303,19 +305,10 @@ export function createDareList(answers: Answers): Dare[] {
   const maxCourage = courageScore[answers.courage];
   const maxEnergy = energyScore[answers.energy];
 
-  const candidates = shuffle(
-    dareIdeas
-      .filter((idea) => selectedFocus.includes(idea.focus) && idea.energy <= maxEnergy)
-      .map((idea) => {
-        const levelDistance = Math.abs(idea.courage - maxCourage);
-        const aboveRequestedLevel = idea.courage > maxCourage ? 4 : 0;
-        const settingMismatch =
-          answers.setting !== "either" && idea.setting !== "either" && idea.setting !== answers.setting ? 2 : 0;
-        return { idea, score: levelDistance + aboveRequestedLevel + settingMismatch };
-      })
-      .sort((first, second) => first.score - second.score)
-      .map(({ idea }) => idea),
-  );
+  const candidates = shuffle(dareIdeas.filter(idea =>
+    selectedFocus.includes(idea.focus) && idea.energy <= maxEnergy && idea.courage <= maxCourage &&
+    (answers.setting === "either" || idea.setting === "either" || idea.setting === answers.setting)
+  )).sort((a, b) => Math.abs(a.courage - maxCourage) - Math.abs(b.courage - maxCourage));
 
   const chosen: Dare[] = candidates.slice(0, 7).map(({ courage, energy, setting, ...dare }) => dare);
 
@@ -337,104 +330,58 @@ export function createDareList(answers: Answers): Dare[] {
   return chosen;
 }
 
-/**
- * Request AI-generated dares from Netlify Function (AI Gateway)
- * With seamless automatic fallback to local mental health generator
- */
+export class CrisisError extends Error {
+  constructor() { super(crisisMessage); }
+}
+async function post(path: string, body: unknown) {
+  const response = await fetch(path, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body), signal: AbortSignal.timeout(30000),
+  });
+  if (!response.ok) throw new Error("AI unavailable");
+  const data = await response.json();
+  if (data?.source === "crisis") throw new CrisisError();
+  return data;
+}
 export async function fetchAiDares(
-  answers: Answers,
-  emotionalState: EmotionalBaseline = "overwhelmed"
-): Promise<{ dares: Dare[]; isAi: boolean }> {
+  answers: Answers, emotionalState: EmotionalBaseline = "overwhelmed"
+): Promise<{ dares: Dare[]; source: Source }> {
+  if (needsImmediateHelp(answers.intention)) throw new CrisisError();
   try {
-    const response = await fetch("/api/generate-dares", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...answers,
-        emotionalState,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`AI Gateway responded with status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    if (Array.isArray(data?.dares) && data.dares.length > 0) {
-      return { dares: data.dares, isAi: true };
-    }
-    throw new Error("Invalid format from AI");
+    const data = await post("/api/generate-dares", { ...answers, emotionalState });
+    return { dares: daresSchema.parse(data?.dares), source: "ai" };
   } catch (error) {
-    console.warn("AI generation fallback triggered:", error);
-    // Graceful fallback to rich local mental health generator
-    const localDares = createDareList({ ...answers, emotionalState });
-    return { dares: localDares, isAi: false };
+    if (error instanceof CrisisError) throw error;
+    return { dares: createDareList({ ...answers, emotionalState }), source: "fallback" };
   }
 }
-
-/**
- * Request AI Reflection for completed / attempted dares
- */
 export async function fetchAiReflection(payload: {
-  dareTitle: string;
-  dareFocus?: string;
-  reflectionText: string;
-  emotionalFeeling?: string;
-}) {
+  dareTitle: string; dareFocus?: string; reflectionText: string; emotionalFeeling?: string;
+}): Promise<{ feedback: Feedback; source: Source }> {
+  if (needsImmediateHelp(`${payload.reflectionText} ${payload.dareTitle} ${payload.emotionalFeeling || ""}`)) throw new CrisisError();
   try {
-    const response = await fetch("/api/reflect-dare", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      throw new Error("Reflection API error");
-    }
-
-    const data = await response.json();
-    return data?.feedback || null;
+    const data = await post("/api/reflect-dare", payload);
+    return { feedback: feedbackSchema.parse(data?.feedback), source: "ai" };
   } catch (error) {
-    console.warn("Reflection error:", error);
-    return {
-      validation: "Langkah kecil yang kamu ambil adalah bukti nyata bahwa kamu sedang merawat dirimu sendiri. Sangat wajar jika ada perasaan campur aduk.",
-      therapeuticInsight: "Setiap kali kamu menghadapi rasa ragu dengan kebaikan hati, otakmu membentuk jalur ketangguhan emosional baru.",
-      affirmation: "Aku aman bertumbuh pelan-pelan dengan ritmeku sendiri.",
-      nextGentleStep: "Minum air hangat, istirahatkan matamu, dan bernapaslah dengan lega.",
-    };
+    if (error instanceof CrisisError) throw error;
+    return { source: "fallback", feedback: {
+      validation: "AI sedang tidak tersedia. Ini pengingat umum, bukan tanggapan pribadi atas ceritamu. Perasaanmu layak didengarkan.",
+      therapeuticInsight: "Kamu boleh mengambil jeda dan mencari dukungan dari orang yang kamu percaya.",
+      affirmation: "Aku boleh mencari bantuan dan bergerak sesuai kemampuanku.",
+      nextGentleStep: "Jika kamu tidak aman, jangan menunggu AI. Hubungi layanan darurat setempat atau orang tepercaya sekarang.",
+    } };
   }
 }
-
-/**
- * Request AI Mental Wellness Companion / Ruang Teduh Coach
- */
-export async function fetchMentalCoach(userMessage: string, topic?: string) {
+export async function fetchMentalCoach(userMessage: string, topic?: string): Promise<{ response: CoachResponse; source: Source }> {
+  if (needsImmediateHelp(userMessage)) throw new CrisisError();
   try {
-    const response = await fetch("/api/mental-coach", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userMessage, topic }),
-    });
-
-    if (!response.ok) {
-      throw new Error("Mental Coach API error");
-    }
-
-    const data = await response.json();
-    return data?.response || null;
+    const data = await post("/api/mental-coach", { userMessage, topic });
+    return { response: coachSchema.parse(data?.response), source: "ai" };
   } catch (error) {
-    console.warn("Mental coach error:", error);
-    return {
-      empathy: "Terima kasih sudah berani mengungkapkan apa yang sedang kamu rasakan. Perasaanmu valid, dan kamu tidak sendirian saat ini.",
-      reframe: "Ingat bahwa pikiran kita sering kali melebih-lebihkan bahaya ketika kita sedang lelah. Kamu tidak harus mempercayai setiap pikiran cemas yang melintas.",
-      breathingPrompt: "Tarik napas lembut 4 detik, tahan 4 detik, embuskan panjang 6 detik. Rasakan bahumu turun dan rileks.",
-      recommendedDare: {
-        title: "Tutup mata selama 1 menit dan lepaskan beban harus menyelesaikan segalanya saat ini.",
-        note: "Beri ruang bagi batinmu untuk bernapas.",
-        focus: "calm",
-        whyHelpMentalHealth: "Menurunkan stimulasi sensorik memberi jeda penting bagi amigdala yang sedang tegang.",
-        microStep: "Letakkan tangan di dada dan bernapas pelan.",
-      },
-    };
+    if (error instanceof CrisisError) throw error;
+    return { source: "fallback", response: {
+      empathy: "AI sedang tidak tersedia. Ini dukungan umum, bukan tanggapan pribadi atas ceritamu. Jika memungkinkan, hubungi orang yang kamu percaya untuk mendengarkanmu.",
+      breathingPrompt: "Jika nyaman dan aman, rasakan kaki menyentuh lantai dan bernapaslah secara alami. Kamu boleh berhenti kapan saja.",
+    } };
   }
 }
